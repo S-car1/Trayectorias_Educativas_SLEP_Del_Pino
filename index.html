@@ -144,6 +144,13 @@ svg{display:block}
     <div class="note" id="es-parcial" style="margin:-4px 2px 14px"></div>
 
     <div class="card">
+      <h3>Distribución del primer ingreso por generación</h3>
+      <p class="desc">Para cada generación de 4° medio, qué porcentaje tuvo su primer ingreso a una universidad, un IP o un CFT, y qué porcentaje no registra ingreso. Cada barra suma 100 %; el número sobre la barra es el total de estudiantes de la generación. Respeta los filtros, salvo el de cohorte (se muestran todas las generaciones).</p>
+      <div id="es-gen"></div>
+      <div class="note">Se considera el primer ingreso a pregrado en cualquier año posterior al 4° medio, no solo al año siguiente. * Las generaciones recientes (2023 en adelante) han tenido menos años para ingresar, por lo que «No registra ingreso» está sobreestimado; la generación 2025 solo cuenta con la matrícula 2026, que está parcial. Solo se registra el primer ingreso: no se ve si la persona luego deserta, se cambia de institución o de tipo de institución. «No registra ingreso» incluye a quien estudia fuera de Chile, no tiene MRUN en la base o no ha ingresado aún. La generación se define por el año en que cursó 4° medio, no por haber aprobado el curso. Las generaciones anteriores a 2012 abarcan menos establecimientos (los RBD cerrados o fusionados antes de 2025 no están en la base).</div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
       <h3>Flujo origen → destino (Sankey)</h3>
       <p class="desc">Elige qué comparar en cada extremo del flujo. El grosor de cada cinta es la cantidad de estudiantes.</p>
       <div class="sankctrl">
@@ -399,12 +406,12 @@ function eVal(r,key){const arr=EMAP[key];return arr?arr[r[Ei[key]]]:r[Ei[key]];}
 const TIPO_COLOR={'Universidades':'var(--s1)','Institutos Profesionales':'var(--s2)','Centros de Formación Técnica':'var(--s3)'};
 
 const esF={orig:'Regular (4° medio)',oEstab:'',oCom:'',anio:'',tipo:'',area:'',nivc:'',reg:'',genero:''};
-function esFilter(){
+function esFilter(sinCohorte){
   return E.recs.filter(r=>
     (!esF.orig||eVal(r,'orig')===esF.orig)&&
     (!esF.oEstab||eVal(r,'oEstab')===esF.oEstab)&&
     (!esF.oCom||eVal(r,'oCom')===esF.oCom)&&
-    (!esF.anio||String(r[Ei.anio])===esF.anio)&&
+    (sinCohorte||!esF.anio||String(r[Ei.anio])===esF.anio)&&
     (!esF.tipo||eVal(r,'tipo')===esF.tipo)&&
     (!esF.area||eVal(r,'area')===esF.area)&&
     (!esF.nivc||eVal(r,'nivc')===esF.nivc)&&
@@ -413,6 +420,43 @@ function esFilter(){
 }
 function countBy(recs,key){const m={};recs.forEach(r=>{const v=eVal(r,key);m[v]=(m[v]||0)+1;});return m;}
 const LBL={forma:'Forma de ingreso',orig:'Origen del estudiante',oEstab:'Establecimiento de origen',oCom:'Comuna de origen',tipo:'Tipo de institución',inst:'Institución',area:'Área de conocimiento',nivc:'Nivel de carrera',reg:'Región de la sede'};
+
+/* ================= DISTRIBUCIÓN POR GENERACIÓN (apilado 100 %) ================= */
+const GEN_SEG=[['Universidades','Universidades','var(--s1)'],['Institutos Profesionales','Institutos Profesionales (IP)','var(--s2)'],
+  ['Centros de Formación Técnica','Centros de Formación Técnica (CFT)','var(--s3)'],['No ingresa a superior','No registra ingreso','#b4c0cb']];
+function genStack(container,recs){
+  container.innerHTML='';
+  const years=[...new Set(recs.map(r=>r[Ei.anio]))].sort((a,b)=>a-b);
+  if(!years.length){container.appendChild(el('div',{class:'empty',text:'Sin datos para los filtros actuales.'}));return;}
+  const cnt={};years.forEach(y=>cnt[y]={});
+  recs.forEach(r=>{const t=eVal(r,'tipo'),c=cnt[r[Ei.anio]];c[t]=(c[t]||0)+1;});
+  const wrap=el('div',{style:'overflow-x:auto'});container.appendChild(wrap);
+  const avail=Math.round(container.getBoundingClientRect().width||container.clientWidth||760);
+  const mL=44,mR=12,mT=22,mB=34,H=300;
+  const W=Math.max(avail,mL+mR+years.length*34);
+  const iw=W-mL-mR,ih=H-mT-mB,slot=iw/years.length,bw=Math.min(40,slot*0.7);
+  const svg=el('svg',{width:W,height:H,viewBox:`0 0 ${W} ${H}`,style:'display:block'});
+  [0,25,50,75,100].forEach(v=>{const yy=mT+ih-(v/100)*ih;
+    svg.appendChild(el('line',{x1:mL,y1:yy,x2:W-mR,y2:yy,stroke:'var(--line2)','stroke-width':1}));
+    svg.appendChild(el('text',{x:mL-6,y:yy+3,'text-anchor':'end','font-size':'10',fill:'var(--muted)',text:v+'%'}));});
+  years.forEach((y,i)=>{
+    const c=cnt[y],tot=GEN_SEG.reduce((a,sg)=>a+(c[sg[0]]||0),0),cx=mL+slot*i+slot/2;let acc=0;
+    GEN_SEG.forEach(([k,lab,col])=>{const v=c[k]||0;if(!v)return;
+      const h=(v/tot)*ih,yTop=mT+ih-((acc+v)/tot)*ih;
+      const rect=el('rect',{x:cx-bw/2,y:yTop,width:bw,height:Math.max(0,h-1),fill:col});
+      bindTip(rect,`<b>Generación ${y}${y>=2023?'*':''} · ${lab}</b><br>${fmt(v)} de ${fmt(tot)} estudiantes · ${pct1(pct(v,tot))}`);
+      svg.appendChild(rect);
+      if(h>=15&&bw>=26)svg.appendChild(el('text',{x:cx,y:yTop+h/2+3,'text-anchor':'middle','font-size':'9.5','font-weight':'600',fill:k==='No ingresa a superior'?'var(--ink2)':'#fff','pointer-events':'none',text:Math.round(pct(v,tot))+'%'}));
+      acc+=v;});
+    svg.appendChild(el('text',{x:cx,y:mT-6,'text-anchor':'middle','font-size':'9.5',fill:'var(--muted)',text:fmt(tot)}));
+    svg.appendChild(el('text',{x:cx,y:H-14,'text-anchor':'middle','font-size':'11',fill:'var(--ink2)',text:y+(y>=2023?'*':'')}));
+  });
+  wrap.appendChild(svg);
+  const tot=recs.length,leg=el('div',{class:'legend',style:'justify-content:center;margin-top:6px'});
+  GEN_SEG.forEach(([k,lab,col])=>{const v=recs.filter(r=>eVal(r,'tipo')===k).length;
+    leg.appendChild(el('div',{class:'li'},[el('span',{class:'sw',style:`background:${col}`}),el('span',{text:lab})]));});
+  container.appendChild(leg);
+}
 
 function esRender(){
   const recs=esFilter();const n=recs.length;
@@ -454,6 +498,7 @@ function esRender(){
     tip:`<b>${k}</b><br>${fmt(v)} estudiantes · ${pct1(pct(v,nI))}`})),{lblw:220,fmtVal:r=>`${fmt(r.value)} (${pct1(pct(r.value,nI))})`});
   {const bm=$('#es-inst-more');bm.style.display=icAll.length>12?'':'none';bm.textContent=window.instAll?'Ver solo las 12 principales':`Ver las ${icAll.length} instituciones`;
    $('#es-inst').style.cssText=window.instAll?'max-height:560px;overflow:auto':'';}
+  genStack($('#es-gen'),esFilter(true));
   // top carreras
   const ccAll=Object.entries(countBy(rI,'carr')).sort((a,b)=>b[1]-a[1]);const cc=ccAll.slice(0,window.carrAll?50:12);
   hbars($('#es-carr'),cc.map(([k,v])=>({label:k,value:v,color:'var(--s2)',
